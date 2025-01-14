@@ -1,8 +1,8 @@
-#!/usr/bin/env python3
 import os
 import random
 import subprocess
 from datetime import datetime
+import tempfile
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 os.chdir(script_dir)
@@ -26,7 +26,7 @@ def generate_random_commit_message():
         model="openai-community/gpt2",
     )
     prompt = """
-        Generate a Git commit message following the Conventional Commits standard. The message should include a type, an optional scope, and a subject.Please keep it short. Here are some examples:
+        Generate a Git commit message following the Conventional Commits standard. The message should include a type, an optional scope, and a subject. Please keep it short. Here are some examples:
 
         - feat(auth): add user authentication module
         - fix(api): resolve null pointer exception in user endpoint
@@ -55,14 +55,14 @@ def generate_random_commit_message():
 
 def git_commit():
     # Stage the changes
-    subprocess.run(["git", "add", "number.txt"])
+    subprocess.run(["git", "add", "number.txt"], check=True)
     # Create commit with current date
     if "FANCY_JOB_USE_LLM" in os.environ:
         commit_message = generate_random_commit_message()
     else:
         date = datetime.now().strftime("%Y-%m-%d")
         commit_message = f"Update number: {date}"
-    subprocess.run(["git", "commit", "-m", commit_message])
+    subprocess.run(["git", "commit", "-m", commit_message], check=True)
 
 
 def git_push():
@@ -75,37 +75,28 @@ def git_push():
         print(result.stderr)
 
 
-def update_cron_with_random_time():
+def update_task_scheduler():
     # Generate random hour (0-23) and minute (0-59)
     random_hour = random.randint(0, 23)
     random_minute = random.randint(0, 59)
 
-    # Define the new cron job command
-    new_cron_command = f"{random_minute} {random_hour} * * * cd {script_dir} && python3 {os.path.join(script_dir, 'update_number.py')}\n"
+    # Create a task in Windows Task Scheduler
+    task_name = "UpdateNumberTask"
+    command = f"powershell.exe -ExecutionPolicy Bypass -File {os.path.join(script_dir, 'update_number.py')}"
 
-    # Get the current crontab
-    cron_file = "/tmp/current_cron"
-    os.system(
-        f"crontab -l > {cron_file} 2>/dev/null || true"
-    )  # Save current crontab, or create a new one if empty
+    # Remove any existing task with the same name
+    subprocess.run(["schtasks", "/delete", "/tn", task_name, "/f"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    # Update the crontab file
-    with open(cron_file, "r") as file:
-        lines = file.readlines()
+    # Create a new task
+    subprocess.run([
+        "schtasks", "/create",
+        "/tn", task_name,
+        "/tr", command,
+        "/sc", "daily",
+        "/st", f"{random_hour:02d}:{random_minute:02d}"
+    ], check=True)
 
-    with open(cron_file, "w") as file:
-        for line in lines:
-            # Remove existing entry for `update_number.py` if it exists
-            if "update_number.py" not in line:
-                file.write(line)
-        # Add the new cron job at the random time
-        file.write(new_cron_command)
-
-    # Load the updated crontab
-    os.system(f"crontab {cron_file}")
-    os.remove(cron_file)
-
-    print(f"Cron job updated to run at {random_hour}:{random_minute} tomorrow.")
+    print(f"Task Scheduler updated to run at {random_hour:02d}:{random_minute:02d} daily.")
 
 
 def main():
@@ -115,7 +106,7 @@ def main():
         write_number(new_number)
         git_commit()
         git_push()
-        update_cron_with_random_time()
+        update_task_scheduler()
     except Exception as e:
         print(f"Error: {str(e)}")
         exit(1)
